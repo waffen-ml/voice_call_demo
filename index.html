@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <script src="/socket.io/socket.io.js"></script>
+        <script src="https://unpkg.com/peerjs@1.5.1/dist/peerjs.min.js"></script>
+        <title>Document</title>
+        <style>
+            .holder {
+                display:flex;
+                flex-direction: column;
+                gap:10px;
+                background:grey;
+            }
+            .user-audio {
+
+            }
+            hidden {
+                display:none;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>Call demo</h1>
+        <span class="status"></span>
+        <button class="mute">Not muted</button>
+        <div class="holder">
+        </div>
+        <hidden id="user-audio">
+            <div class="user-audio">
+                <span class="userid"></span>
+                <input type="range" class="volume" min="1" max="100" step="1" value="100">
+            </div>
+        </hidden>
+        <script>
+            const holder = document.querySelector('.holder');
+            const roomId = window.location.pathname.split('/').pop()
+            const socket = io('/')
+            const members = {}
+            const muteButton = document.querySelector('.mute')
+            
+
+            function copyHidden(hidden_id, f) {
+                let copy = document.querySelector('#' + hidden_id).childNodes[1].cloneNode(true);
+                if (f) f(copy)
+                return copy;
+            }
+
+            function addMember(id, call, stream) {
+                let element = copyHidden('user-audio')
+                element.querySelector('.userid').textContent = id
+
+                let audio = document.createElement('audio')
+                audio.srcObject = stream
+                audio.autoplay = true
+
+                let volumeInput = element.querySelector('.volume');
+                volumeInput.addEventListener('change', (e) => {
+                    audio.volume = volumeInput.value / 100;
+                })
+
+                holder.appendChild(element);
+                members[id] = {call: call, stream: stream, element: element}
+            }
+
+            function removeMember(id) {
+
+            }
+
+            function addAudioStream(stream) {
+                let audio = document.createElement('audio')
+                audio.srcObject = stream
+                audio.autoplay = true
+            }
+
+            navigator.mediaDevices.getUserMedia({
+                'audio': true,
+                'video': false
+            }).then(stream => {
+                
+                let muted = false;
+
+                muteButton.addEventListener('click', () => {
+                    muted = !muted;
+                    
+                    stream.getAudioTracks().forEach(t => {
+                        t.enabled = !muted
+                    })
+                        
+                    muteButton.textContent = muted? 'Muted' : 'Not muted';
+                })
+
+                const peer = new Peer(undefined, {
+                    host: '/',
+                    port: '3001',
+                    secure:true
+                });
+
+                peer.on('open', id => {
+                    socket.emit('join-room', roomId, id);
+                })
+
+                peer.on('call', call => {
+                    call.answer(stream)
+                    call.on('stream', userStream => {
+                        addMember(call.peer, call, userStream)
+                    })
+                })
+
+                socket.on('user-connected', userId => {
+                    const call = peer.call(userId, stream);
+
+                    call.on('stream', userStream => {
+                        addMember(userId, call, userStream)
+                    });
+
+                    call.on('close', () => {
+                        
+                    })
+                })
+
+            }).catch(err => {
+                alert('Error: ' + err)
+            })
+
+            socket.on('user-disconnected', userId => {
+                if (!members[userId])
+                    return;
+                
+                members[userId].call.close()
+                holder.removeChild(members[userId].element)
+                delete members[userId]
+                console.log(userId + ' disconnected')
+            })
+        </script>
+    </body>
+</html>
